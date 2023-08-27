@@ -1,0 +1,21 @@
+[package]
+name = "canvas-trello-sync"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { version = "0.4.26", features = ["serde"] }
+clap = { version = "4.4.0", features = ["derive", "env"] }
+eyre = "0.6.8"
+futures = "0.3.28"
+html2md = "0.2.14"
+reqwest = { version = "0.11.20", features = ["serde_json", "json"] }
+serde = { version = "1.0.188", features = ["derive"] }
+serde_json = "1.0.105"
+tokio = { version = "1.32.0", features = ["full"] }
+toml = "0.7.6"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["std", "env-filter"] }
+url = { version = "2.4.0", features = ["serde"] }
