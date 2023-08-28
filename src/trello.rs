@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use eyre::{Result, WrapErr};
 use reqwest::Method;
@@ -53,13 +55,27 @@ impl Client {
         Ok(body)
     }
 
-    pub async fn set_card_due_date(&self, card_id: &str, due: DateTime<Utc>) -> Result<()> {
+    pub async fn update_card<T, K, V>(
+        &self,
+        card_id: &str,
+        patch: impl IntoIterator<Item = T>,
+    ) -> Result<()>
+    where
+        K: AsRef<str>,
+        V: AsRef<str>,
+        HashMap<K, V>: FromIterator<T>,
+    {
+        let patch = patch.into_iter().collect::<HashMap<_, _>>();
+        let patch = patch
+            .into_iter()
+            .map(|(k, v)| (k.as_ref().to_owned(), v.as_ref().to_owned()))
+            .collect::<HashMap<_, _>>();
         let url = format!("{}/cards/{}", self.base_url, card_id);
         self.req(Method::PUT, url)
-            .query(&[("due", &due.to_rfc3339())])
+            .query(&patch)
             .send()
             .await
-            .wrap_err_with(|| format!("Failed to set due date of card: {:?}", card_id))?;
+            .wrap_err_with(|| format!("Failed to update card: {:?}", card_id))?;
         Ok(())
     }
 
@@ -72,6 +88,7 @@ impl Client {
                 ("name", &create_card.name),
                 ("desc", &create_card.desc),
                 ("due", &create_card.due.to_rfc3339()),
+                ("due_complete", &create_card.due_complete.to_string()),
                 ("idLabels", &create_card.label_ids.join(",")),
             ])
             .send()
@@ -126,7 +143,9 @@ pub struct CustomFieldDesc {
 pub struct Card {
     pub id: String,
     pub name: String,
+    pub desc: String,
     pub due: Option<DateTime<Utc>>,
+    pub due_complete: bool,
     pub labels: Vec<Label>,
     #[serde(default)]
     pub custom_field_items: Vec<CustomFieldItem>,
@@ -181,5 +200,6 @@ pub struct CreateCard {
     pub name: String,
     pub desc: String,
     pub due: DateTime<Utc>,
+    pub due_complete: bool,
     pub label_ids: Vec<String>,
 }

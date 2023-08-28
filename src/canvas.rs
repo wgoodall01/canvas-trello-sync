@@ -97,6 +97,12 @@ impl Client {
                     htmlUrl
                     expectsSubmission
                     name
+                    submissionsConnection {
+                      nodes {
+                        _id
+                        attempt
+                      }
+                    }
                   }
                 }
               }
@@ -129,4 +135,25 @@ pub struct Assignment {
     pub due_at: DateTime<Utc>,
     pub html_url: Url,
     pub expects_submission: bool,
+    pub submissions_connection: AssignmentSubmissionConnection,
+}
+
+impl Assignment {
+    pub fn submitted(&self) -> bool {
+        !self.submissions_connection.nodes.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignmentSubmissionConnection {
+    pub nodes: Vec<AssignmentSubmission>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignmentSubmission {
+    #[serde(rename = "_id")]
+    pub id: String,
+    pub attempt: u32,
 }
