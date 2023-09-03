@@ -132,7 +132,7 @@ pub struct Assignment {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    pub due_at: DateTime<Utc>,
+    pub due_at: Option<DateTime<Utc>>,
     pub html_url: Url,
     pub expects_submission: bool,
     pub submissions_connection: AssignmentSubmissionConnection,

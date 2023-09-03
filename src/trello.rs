@@ -81,16 +81,21 @@ impl Client {
 
     pub async fn create_card(&self, list_id: &str, create_card: CreateCard) -> Result<Card> {
         let url = format!("{}/cards", self.base_url);
+
+        let mut args = vec![
+            ("idList", list_id.to_owned()),
+            ("name", create_card.name.clone()),
+            ("desc", create_card.desc),
+            ("due_complete", create_card.due_complete.to_string()),
+            ("idLabels", create_card.label_ids.join(",")),
+        ];
+        if let Some(due) = create_card.due {
+            args.push(("due", due.to_rfc3339()));
+        }
+
         let resp = self
             .req(Method::POST, url)
-            .query(&[
-                ("idList", list_id),
-                ("name", &create_card.name),
-                ("desc", &create_card.desc),
-                ("due", &create_card.due.to_rfc3339()),
-                ("due_complete", &create_card.due_complete.to_string()),
-                ("idLabels", &create_card.label_ids.join(",")),
-            ])
+            .query(&args)
             .send()
             .await
             .wrap_err_with(|| format!("Failed to create card: {:?}", create_card.name))?;
@@ -199,7 +204,7 @@ pub enum CustomFieldValue {
 pub struct CreateCard {
     pub name: String,
     pub desc: String,
-    pub due: DateTime<Utc>,
+    pub due: Option<DateTime<Utc>>,
     pub due_complete: bool,
     pub label_ids: Vec<String>,
 }

@@ -114,6 +114,7 @@ async fn main() -> Result<()> {
         count_created: AtomicU64::new(0),
         count_updated: AtomicU64::new(0),
         count_up_to_date: AtomicU64::new(0),
+        count_skipped: AtomicU64::new(0),
     };
 
     // Loop through the mappings, syncing each one.
@@ -129,6 +130,7 @@ async fn main() -> Result<()> {
         created = ctx.count_created.load(Ordering::Relaxed),
         updated = ctx.count_updated.load(Ordering::Relaxed),
         up_to_date = ctx.count_up_to_date.load(Ordering::Relaxed),
+        skipped = ctx.count_skipped.load(Ordering::Relaxed),
         "Sync Complete",
     );
 
@@ -148,6 +150,7 @@ struct Context {
     count_created: AtomicU64,
     count_updated: AtomicU64,
     count_up_to_date: AtomicU64,
+    count_skipped: AtomicU64,
 }
 
 #[instrument(level = "INFO", skip_all, fields(course = %mapping.trello_label_name))]
@@ -176,6 +179,18 @@ async fn sync_assignment(
     mapping: &lib::config::Mapping,
     assignment: &lib::canvas::Assignment,
 ) -> Result<()> {
+    // Skip certain assignments (i.e. "Roll Call Attendance", etc).
+    let will_skip = !assignment.expects_submission && assignment.due_at.is_none();
+    if will_skip {
+        ctx.count_skipped.fetch_add(1, Ordering::Relaxed);
+        info!(
+            expects_submission=assignment.expects_submission,
+            due=?assignment.due_at,
+            "Skipping",
+        );
+        return Ok(());
+    }
+
     // Format the `Canvas URL` field for this assignment:
     let mut canvas_url = assignment.html_url.clone();
     canvas_url.set_scheme("https").unwrap();
@@ -218,7 +233,7 @@ async fn sync_assignment(
 
     // Update any existing cards with the right due date.
     for existing_card in &cards_with_correct_url {
-        let mismatch_due = existing_card.due != Some(assignment.due_at);
+        let mismatch_due = existing_card.due != assignment.due_at;
         let mismatch_complete = existing_card.due_complete != assignment.submitted();
         let mismatch_desc =
             existing_card.desc.starts_with(desc_header) && existing_card.desc != new_description;
@@ -227,7 +242,7 @@ async fn sync_assignment(
 
         if !should_update {
             // The card already exists and has the right due date.
-            info!(card_id=%existing_card.id, due=%assignment.due_at, complete=%assignment.submitted(), "Card up to date");
+            info!(card_id=%existing_card.id, due=?assignment.due_at, complete=%assignment.submitted(), "Card up to date");
             ctx.count_up_to_date.fetch_add(1, Ordering::Relaxed);
             continue;
         }
@@ -243,12 +258,14 @@ async fn sync_assignment(
         );
 
         // Update the card.
-        info!(card_id=%existing_card.id, due=%assignment.due_at, complete=%assignment.submitted(), "Update card");
-        let patch = [
-            ("due", assignment.due_at.to_rfc3339()),
+        info!(card_id=%existing_card.id, due=?assignment.due_at, complete=%assignment.submitted(), "Update card");
+        let mut patch = vec![
             ("dueComplete", assignment.submitted().to_string()),
             ("desc", new_description.to_owned()),
         ];
+        if let Some(due) = assignment.due_at {
+            patch.push(("due", due.to_rfc3339()));
+        }
         ctx.trello
             .update_card(&existing_card.id, patch)
             .await
@@ -258,7 +275,7 @@ async fn sync_assignment(
 
     // If there are no existing cards, create one.
     if cards_with_correct_url.is_empty() {
-        info!(assignment_name=%assignment.name, due=%assignment.due_at, "Create card");
+        info!(assignment_name=%assignment.name, due=?assignment.due_at, "Create card");
 
         // Create the new card.
         let new_card_fields = lib::trello::CreateCard {
