@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use clap::Parser;
 use eyre::{ContextCompat, Result, WrapErr};
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use canvas_trello_sync as lib;
 
@@ -234,24 +234,25 @@ async fn sync_assignment(
     // Update any existing cards with the right due date.
     for existing_card in &cards_with_correct_url {
         let mismatch_due = existing_card.due != assignment.due_at;
+        let mismatch_title = existing_card.name != assignment.name;
         let mismatch_complete = existing_card.due_complete != assignment.submitted();
         let mismatch_desc =
             existing_card.desc.starts_with(desc_header) && existing_card.desc != new_description;
 
-        let should_update = mismatch_due || mismatch_complete || mismatch_desc;
+        let should_update = mismatch_due || mismatch_title || mismatch_complete || mismatch_desc;
 
         if !should_update {
             // The card already exists and has the right due date.
-            info!(card_id=%existing_card.id, due=?assignment.due_at, complete=%assignment.submitted(), "Card up to date");
+            info!(card_id=%existing_card.id, name=existing_card.name, due=?assignment.due_at, complete=%assignment.submitted(), "Card up to date");
             ctx.count_up_to_date.fetch_add(1, Ordering::Relaxed);
             continue;
         }
 
         debug!(
             mismatch_due,
-            mismatch_complete, mismatch_desc, "Card needs update"
+            mismatch_complete, mismatch_desc, mismatch_title, "Card needs update"
         );
-        debug!(
+        trace!(
             old_desc = existing_card.desc,
             new_desc = &new_description,
             "Description"
@@ -259,13 +260,18 @@ async fn sync_assignment(
 
         // Update the card.
         info!(card_id=%existing_card.id, due=?assignment.due_at, complete=%assignment.submitted(), "Update card");
-        let mut patch = vec![
+        let patch = vec![
+            ("name", assignment.name.clone()),
             ("dueComplete", assignment.submitted().to_string()),
             ("desc", new_description.to_owned()),
+            (
+                "due",
+                assignment
+                    .due_at
+                    .map(|d| d.to_rfc3339())
+                    .unwrap_or_else(|| "null".to_string()),
+            ),
         ];
-        if let Some(due) = assignment.due_at {
-            patch.push(("due", due.to_rfc3339()));
-        }
         ctx.trello
             .update_card(&existing_card.id, patch)
             .await
